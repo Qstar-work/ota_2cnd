@@ -8,6 +8,7 @@ import platform
 import time
 import re
 import datetime
+from xml.dom.minidom import parseString
 
 SEGMENT = "+"
 LINE_SEGMENT = "+" * 64
@@ -23,9 +24,17 @@ SIGNED_UPDATE_FILE = os.path.join(LOCAL_BASE_DIR, 'out', 'update.zip')
 CUSTOM_DIR = os.path.join(LOCAL_BASE_DIR, 'custom')
 ROM_DIR = os.path.join(CUSTOM_DIR, 'rom')
 
-#add for logo build
+# add for logo build
 PC_TOOLS_DIR = os.path.join(LOCAL_BASE_DIR, 'tool', 'pctools')
 PACK_FEX_DIR = os.path.join(LOCAL_BASE_DIR, 'tool', 'pack_fex')
+
+
+class PackError(Exception):
+
+    def __init__(self, message, hidden=False):
+        super().__init__(message)
+        self.hidden = hidden
+
 
 if 'window' in platform.system().lower():
     JAVA_HOME = os.path.join(LOCAL_BASE_DIR, 'tool', 'openjdk8', 'bin', 'java.exe')
@@ -75,9 +84,9 @@ def _sign_update_zip(unsign_zip_path, signed_zip_path):
     cmd = _sign_rom_cmd(unsign_zip_path, signed_zip_path)
     process = subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
     time.sleep(3)
-    print('zip签名中...')
+    print('\nzip签名中...')
     process.communicate('\n'.encode())
-    print('zip签名完毕')
+    print('\nzip签名完毕')
 
 def _build_bootlogo():
     print('检查 bootlogo 是否存在')
@@ -91,10 +100,10 @@ def _build_bootlogo():
 
     print('复制文件: %s' % from_file)
     shutil.copyfile(from_file, to_dir)
-    
-    print('开始生成新的bootloader.fex') 
+
+    print('开始生成新的bootloader.fex')
     pwdold = os.getcwd()
-    print('pwd saved %s' % pwdold) 
+    print('pwd saved %s' % pwdold)
     os.chdir(PACK_FEX_DIR)
     pwdnew = os.getcwd()
     INI_FILE = os.path.join(PACK_FEX_DIR, 'ini_config', 'boot-resource.ini')
@@ -110,7 +119,25 @@ def _build_bootlogo():
         return
     shutil.move(res_fex, rom_fex_path)
     print('bootlogo 更新完成')
-    
+
+
+def _check_permission():
+    build_prop_path = os.path.join(UNSIGN_ROM_DIR, 'system', 'build.prop')
+    pattern = re.compile(r'([._a-zA-Z0-9]*)=([^#\s]*)[\s#]?.?', re.S)
+    checked_keys = set({'ro.fw.pck.version',
+                        'ro.fw.pck.product',
+                        'ro.fw.pck.customer'})
+    file_keys = set()
+    with open(build_prop_path) as file:
+        for row in file.readlines():
+            search_value = read_prop_line(row, pattern)
+            if not search_value:
+                continue
+            file_keys.add(search_value[0])
+    if not (checked_keys & file_keys == checked_keys):
+        raise PackError('Unknown Error: -9', True)
+
+
 def copy_system():
     from_dir = ROM_DIR
     to_dir = UNSIGN_ROM_DIR
@@ -127,6 +154,7 @@ def copy_system():
             to_file_path = to_dir + from_file_path.replace(from_dir, '')
             shutil.copyfile(from_file_path, to_file_path)
             print('复制文件: %s' % file_name)
+
 
 def delete_apps():
     print('准备删除APP')
@@ -149,8 +177,8 @@ def delete_apps():
             os.remove(delete_app_path)
             print('已删除App: %s' % file_name)
 
-
     print('APP删除完毕')
+
 
 def modify_build_prop():
     print('准备修改build.prop')
@@ -185,6 +213,7 @@ def modify_build_prop():
         file.write(out_data)
     print('完成build.prop修改')
 
+
 def read_prop_line(row, pattern):
     if not row: return
     row = row.strip()
@@ -194,6 +223,35 @@ def read_prop_line(row, pattern):
     search_value = search_value[0]
     return search_value
 
+
+def modify_dtv():
+    dtv_path = os.path.join(UNSIGN_ROM_DIR, 'system', 'etc', 'dtv', 'dtv.xml')
+    file_path = os.path.join(CUSTOM_DIR, 'dtv.conf')
+    if not os.path.exists(dtv_path) or not os.path.exists(file_path): return
+    print('准备修改dtv.xml')
+    modify_dict = {}
+    pattern = re.compile(r'([_a-zA-Z0-9]*)=([^#\s]*)[\s#]?.?', re.S)
+    with open(file_path) as file:
+        for row in file.readlines():
+            search_value = read_prop_line(row, pattern)
+            if not search_value:
+                continue
+            key = search_value[0]
+            modify_dict[key] = (re.compile(r'%s=(\"[^#\s]*\")' % key, re.S),
+                                '%s=%s' % (key, search_value[1]))
+    with open(dtv_path) as file:
+        content = file.read()
+    content = re.sub(re.compile(r'(<!--.*-->)', re.S), '', content)
+    for key, (pattern, value) in modify_dict.items():
+        if key in content:
+            content = re.sub(pattern, value, content)
+        else:
+            content = content.replace('<dtv', '<dtv\n\t%s' % value)
+    with open(dtv_path, mode='w') as file:
+        file.write(content)
+    print('dtv.xml修改完毕')
+
+
 def pack():
     try:
         print('\n'.join([
@@ -202,17 +260,17 @@ def pack():
             LINE_SEGMENT,
         ]))
         print('工具开始运行...')
-        if not os.path.exists(ROM_PATH):
-            print('错误: rom.zip文件不在当前目录')
-            return
+        if not os.path.exists(ROM_PATH): raise PackError('错误: rom.zip文件不在当前目录')
         if os.path.exists(UNSIGN_ROM_DIR): shutil.rmtree(UNSIGN_ROM_DIR, ignore_errors=True)
         if os.path.exists(UNSIGN_ROM_PATH): os.remove(UNSIGN_ROM_PATH)
         os.makedirs(UNSIGN_ROM_DIR, exist_ok=True)
         _unzip_file(ROM_PATH, UNSIGN_ROM_DIR)
+        _check_permission()
         _build_bootlogo()
         delete_apps()
         copy_system()
         modify_build_prop()
+        modify_dtv()
         # 打包zip
         if os.path.exists(UNSIGN_ROM_PATH): os.remove(UNSIGN_ROM_PATH)
         _zip_dir(UNSIGN_ROM_DIR, UNSIGN_ROM_PATH)
@@ -221,6 +279,11 @@ def pack():
         if os.path.exists(UNSIGN_ROM_DIR): shutil.rmtree(UNSIGN_ROM_DIR, ignore_errors=True)
         if os.path.exists(UNSIGN_ROM_PATH): os.remove(UNSIGN_ROM_PATH)
         print('打包完毕，输出目录: %s' % SIGNED_UPDATE_FILE)
+    except PackError as error:
+        if error.hidden:
+            print(error)
+        else:
+            raise error
     except:
         import traceback
         print(traceback.format_exc())
