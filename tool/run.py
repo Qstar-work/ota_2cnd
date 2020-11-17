@@ -213,6 +213,39 @@ def modify_build_prop():
         file.write(out_data)
     print('完成build.prop修改')
 
+def modify_version_info():
+    print('准备修改version_info')
+    file_path = os.path.join(CUSTOM_DIR, 'build.conf')
+    modify_list = ['ro.fw.pck.version','ro.fw.pck.product','ro.fw.pck.customer']
+    modify_dict = {}
+    pattern = re.compile(r'([._a-zA-Z0-9]*)=([^#\s]*)[\s#]?.?', re.S)
+    with open(file_path, mode='r', encoding='UTF-8') as file:
+        for row in file.readlines():
+            search_value = read_prop_line(row, pattern)
+            if not search_value: continue
+            if search_value[0] in modify_list: modify_dict[search_value[0]] = search_value[1]
+    out_data = []
+    build_prop_path = os.path.join(UNSIGN_ROM_DIR, 'META-INF', 'version_info')
+    with open(build_prop_path) as file:
+        for row in file.readlines():
+            search_value = read_prop_line(row, pattern)
+            if search_value:
+                key = search_value[0]
+                pop_value = modify_dict.pop(key, None)
+                if pop_value:
+                    out_data.append('%s=%s\n' % (key, pop_value))
+                else:
+                    out_data.append(row)
+            else:
+                out_data.append(row)
+    if modify_dict:
+        out_data.append('# Additional build properties from custom/build.conf\n')
+        for key, value in modify_dict.items():
+            out_data.append('%s=%s\n' % (key, value))
+    out_data = ''.join(out_data)
+    with open(build_prop_path, mode='w') as file:
+        file.write(out_data)
+    print('完成version_info修改')
 
 def read_prop_line(row, pattern):
     if not row: return
@@ -270,6 +303,7 @@ def pack():
         delete_apps()
         copy_system()
         modify_build_prop()
+        modify_version_info()
         modify_dtv()
         # 打包zip
         if os.path.exists(UNSIGN_ROM_PATH): os.remove(UNSIGN_ROM_PATH)
