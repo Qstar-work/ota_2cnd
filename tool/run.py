@@ -152,6 +152,7 @@ def copy_system():
             if file_name == '.DS_Store': continue
             from_file_path = os.path.join(dir_info[0], file_name)
             to_file_path = to_dir + from_file_path.replace(from_dir, '')
+            os.makedirs(os.path.dirname(to_file_path), exist_ok=True)
             shutil.copyfile(from_file_path, to_file_path)
             print('复制文件: %s' % file_name)
 
@@ -179,6 +180,19 @@ def delete_apps():
 
     print('APP删除完毕')
 
+def delete_files():
+    print('准备删除文件')
+    file_path = os.path.join(CUSTOM_DIR, 'delete-files.conf')
+    with open(file_path) as file:
+        for line in file.readlines():
+            if line.startswith('#'): continue
+            delete_app_path = os.path.join(UNSIGN_ROM_DIR, line)
+            if os.path.exists(delete_app_path): 
+                if os.path.isdir(delete_app_path):
+                    shutil.rmtree(delete_app_path, ignore_errors=True)
+                else: 
+                    os.remove(delete_app_path)
+    print('APP删除文件')
 
 def modify_build_prop():
     print('准备修改build.prop')
@@ -301,6 +315,7 @@ def pack():
         _check_permission()
         _build_bootlogo()
         delete_apps()
+        delete_files()
         copy_system()
         modify_build_prop()
         modify_version_info()
