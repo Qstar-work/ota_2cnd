@@ -3,3 +3,4 @@ out/
 .idea/
 ./custom/rom/bootloader.fex
 ./tool/pack_fex/boot-resource/bootlogo.bmp
+DargonFace
