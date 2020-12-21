@@ -8,6 +8,7 @@ import platform
 import time
 import re
 import datetime
+import tempfile
 from xml.dom.minidom import parseString
 
 SEGMENT = "+"
@@ -52,6 +53,9 @@ def _sync_bootlogo():
     shutil.copyfile(from_file, to_dir)
     to_dir = os.path.join(ROM_DIR, 'bootfs', 'bootlogo.bmp')
     shutil.copyfile(from_file, to_dir)
+    to_dir = os.path.join(tempfile.gettempdir(), 'bootlogo.lhs')
+    print('复制文件: %s' % to_dir)
+    shutil.copyfile(from_file, to_dir)	
     print('bootlogo 更新完成')
 
     print('检查 bootanimation.zip 是否存在')	
